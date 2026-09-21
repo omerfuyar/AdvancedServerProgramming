@@ -1,0 +1,34 @@
+@base = http://localhost:8080
+
+### List all rooms (200)
+GET {{base}}/api/rooms
+
+### Get one room (200)
+GET {{base}}/api/rooms/1
+
+### Get missing room (404)
+GET {{base}}/api/rooms/999
+
+### Create a room (201 + Location)
+POST {{base}}/api/rooms
+Content-Type: application/json
+
+{"name": "Room C", "capacity": 30}
+
+### Update a room (200)
+PUT {{base}}/api/rooms/1
+Content-Type: application/json
+
+{"name": "Room A (renamed)", "capacity": 12}
+
+### Update missing room (404)
+PUT {{base}}/api/rooms/999
+Content-Type: application/json
+
+{"name": "Nope", "capacity": 1}
+
+### Delete a room (204)
+DELETE {{base}}/api/rooms/2
+
+### Delete missing room (404)
+DELETE {{base}}/api/rooms/999
