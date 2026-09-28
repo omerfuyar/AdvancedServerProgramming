@@ -32,15 +32,23 @@ public class RoomController {
 
     @PostMapping
     public ResponseEntity<Room> create(@RequestBody RoomRequest request) {
-        Room room = roomService.create(request.name(), request.capacity());
-        return ResponseEntity.created(URI.create("/api/rooms/" + room.id())).body(room);
+        try {
+            Room room = roomService.create(request.name(), request.capacity());
+            return ResponseEntity.created(URI.create("/api/rooms/" + room.id())).body(room);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().build();
+        }
     }
 
     @PutMapping("/{id}")
     public ResponseEntity<Room> replace(@PathVariable Long id, @RequestBody RoomRequest request) {
-        return roomService.replace(id, request.name(), request.capacity())
-                .map(ResponseEntity::ok)
-                .orElseGet(() -> ResponseEntity.notFound().build());
+        try {
+            return roomService.replace(id, request.name(), request.capacity())
+                    .map(ResponseEntity::ok)
+                    .orElseGet(() -> ResponseEntity.notFound().build());
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().build();
+        }
     }
 
     @DeleteMapping("/{id}")
