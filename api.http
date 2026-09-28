@@ -1,34 +1,77 @@
 @base = http://localhost:8080
 
-### List all rooms (200)
+########## GET /api/rooms — list, with optional filters ##########
+
+### 1. List all rooms (200)
 GET {{base}}/api/rooms
 
-### Get one room (200)
+### 2. Filter by minimum capacity (200)
+GET {{base}}/api/rooms?minCapacity=15
+
+### 3. Filter by keyword in the name (200)
+GET {{base}}/api/rooms?keyword=room
+
+### 4. Both filters together (200)
+GET {{base}}/api/rooms?minCapacity=15&keyword=room
+
+### 5. Filters that match nothing — empty list, still 200
+GET {{base}}/api/rooms?minCapacity=15&keyword=nothing
+
+### 6. minCapacity is not a number (400)
+GET {{base}}/api/rooms?minCapacity=abc
+
+########## GET /api/rooms/{id} — one room ##########
+
+### 7. Get one room (200)
 GET {{base}}/api/rooms/1
 
-### Get missing room (404)
+### 8. Get a room that does not exist (404)
 GET {{base}}/api/rooms/999
 
-### Create a room (201 + Location)
+########## POST /api/rooms — create ##########
+
+### 9. Create a room (201 + Location: /api/rooms/3)
 POST {{base}}/api/rooms
 Content-Type: application/json
 
-{"name": "Room C", "capacity": 30}
+{"name": "Room C", "capacity": 8}
 
-### Update a room (200)
+### 10. Create with capacity 0 — below the minimum (400)
+POST {{base}}/api/rooms
+Content-Type: application/json
+
+{"name": "Too small", "capacity": 0}
+
+### 11. Create with capacity 50 — above the maximum (400)
+POST {{base}}/api/rooms
+Content-Type: application/json
+
+{"name": "Too big", "capacity": 50}
+
+########## PUT /api/rooms/{id} — replace ##########
+
+### 12. Replace an existing room (200)
 PUT {{base}}/api/rooms/1
 Content-Type: application/json
 
 {"name": "Room A (renamed)", "capacity": 12}
 
-### Update missing room (404)
+### 13. Replace a room that does not exist (404)
 PUT {{base}}/api/rooms/999
 Content-Type: application/json
 
-{"name": "Nope", "capacity": 1}
+{"name": "Nope", "capacity": 10}
 
-### Delete a room (204)
+### 14. Replace with capacity 50 — above the maximum (400)
+PUT {{base}}/api/rooms/1
+Content-Type: application/json
+
+{"name": "Room A", "capacity": 50}
+
+########## DELETE /api/rooms/{id} ##########
+
+### 15. Delete a room (204)
 DELETE {{base}}/api/rooms/2
 
-### Delete missing room (404)
+### 16. Delete a room that does not exist (404)
 DELETE {{base}}/api/rooms/999
