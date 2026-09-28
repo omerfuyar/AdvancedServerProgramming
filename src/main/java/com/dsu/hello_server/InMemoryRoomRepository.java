@@ -9,7 +9,6 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public class InMemoryRoomRepository implements RoomRepository {
-
     private final List<Room> rooms = new ArrayList<>();
     private final AtomicLong nextId = new AtomicLong(1);
 
