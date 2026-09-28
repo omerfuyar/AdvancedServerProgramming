@@ -10,42 +10,42 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/rooms")
 public class RoomController {
 
-    private final InMemoryRoomRepository roomRepository;
+    private final RoomService roomService;
 
-    public RoomController(InMemoryRoomRepository roomRepository) {
-        this.roomRepository = roomRepository;
+    public RoomController(RoomService roomService) {
+        this.roomService = roomService;
     }
 
     @GetMapping
-    public List<Room> list() {
-        return roomRepository.findAll();
+    public List<Room> list(
+            @RequestParam(required = false) Integer minCapacity,
+            @RequestParam(required = false) String keyword) {
+        return roomService.search(minCapacity, keyword);
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<Room> findOne(@PathVariable Long id) {
-        return roomRepository.findById(id)
+        return roomService.findById(id)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     @PostMapping
     public ResponseEntity<Room> create(@RequestBody RoomRequest request) {
-        Room room = roomRepository.save(new Room(null, request.name(), request.capacity()));
+        Room room = roomService.create(request.name(), request.capacity());
         return ResponseEntity.created(URI.create("/api/rooms/" + room.id())).body(room);
     }
 
     @PutMapping("/{id}")
     public ResponseEntity<Room> replace(@PathVariable Long id, @RequestBody RoomRequest request) {
-        if (roomRepository.findById(id).isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
-        Room updated = roomRepository.save(new Room(id, request.name(), request.capacity()));
-        return ResponseEntity.ok(updated);
+        return roomService.replace(id, request.name(), request.capacity())
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
-        if (!roomRepository.deleteById(id)) {
+        if (!roomService.delete(id)) {
             return ResponseEntity.notFound().build();
         }
         return ResponseEntity.noContent().build();
