@@ -8,7 +8,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.springframework.stereotype.Repository;
 
 @Repository
-public class InMemoryRoomRepository {
+public class InMemoryRoomRepository implements RoomRepository {
 
     private final List<Room> rooms = new ArrayList<>();
     private final AtomicLong nextId = new AtomicLong(1);
@@ -18,10 +18,12 @@ public class InMemoryRoomRepository {
         rooms.add(new Room(nextId.getAndIncrement(), "Room B", 20));
     }
 
+    @Override
     public List<Room> findAll() {
         return List.copyOf(rooms);
     }
 
+    @Override
     public Optional<Room> findById(Long id) {
         for (Room room : rooms) {
             if (room.id().equals(id)) {
@@ -31,6 +33,7 @@ public class InMemoryRoomRepository {
         return Optional.empty();
     }
 
+    @Override
     public Room save(Room room) {
         if (room.id() == null) {
             Room created = new Room(nextId.getAndIncrement(), room.name(), room.capacity());
@@ -47,6 +50,7 @@ public class InMemoryRoomRepository {
         return room;
     }
 
+    @Override
     public boolean deleteById(Long id) {
         return rooms.removeIf(room -> room.id().equals(id));
     }

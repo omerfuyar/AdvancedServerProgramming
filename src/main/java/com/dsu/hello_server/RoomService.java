@@ -8,9 +8,9 @@ import org.springframework.stereotype.Service;
 @Service
 public class RoomService {
 
-    private final InMemoryRoomRepository roomRepository;
+    private final RoomRepository roomRepository;
 
-    public RoomService(InMemoryRoomRepository roomRepository) {
+    public RoomService(RoomRepository roomRepository) {
         this.roomRepository = roomRepository;
     }
 
