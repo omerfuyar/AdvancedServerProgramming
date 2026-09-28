@@ -15,7 +15,11 @@ public class RoomService {
     }
 
     public List<Room> search(Integer minCapacity, String keyword) {
-        return roomRepository.findAll();
+        return roomRepository.findAll().stream()
+                .filter(room -> minCapacity == null || room.capacity() >= minCapacity)
+                .filter(room -> keyword == null || keyword.isBlank()
+                        || room.name().toLowerCase().contains(keyword.toLowerCase()))
+                .toList();
     }
 
     public Optional<Room> findById(Long id) {
