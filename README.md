@@ -28,6 +28,29 @@ gradlew.bat bootRun
 
 The server starts on http://localhost:8080. Open `api.http` and run end points
 
+## Database
+
+The application uses an in-memory H2 database. `schema.sql` creates these tables
+when the application starts, and `data.sql` inserts the three rooms and five
+reservations from class.
+
+| Table | Columns |
+| --- | --- |
+| `room` | `id` (primary key), `name`, `capacity` |
+| `reservation` | `id` (primary key), `room_id` (foreign key to `room.id`), `reserved_by`, `start_time`, `end_time` |
+
+One room can have many reservations. Each reservation belongs to one room through
+`reservation.room_id`.
+
+Open the H2 console at <http://localhost:8080/h2-console> while the server is
+running, then use:
+
+| Setting | Value |
+| --- | --- |
+| JDBC URL | `jdbc:h2:mem:roomdb` |
+| User Name | `sa` |
+| Password | *(empty)* |
+
 ## AI use
 
 I used AI to write the code and to format this file, then inspected and refactored it.
