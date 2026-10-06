@@ -2,9 +2,10 @@ CREATE TABLE room (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     capacity INT NOT NULL,
-    CONSTRAINT chk_room_capacity CHECK (capacity BETWEEN 1 AND 20)
+    CONSTRAINT chk_room_capacity CHECK (
+        capacity BETWEEN 1 AND 20
+    )
 );
-
 CREATE TABLE reservation (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     room_id BIGINT NOT NULL,

@@ -1,7 +1,7 @@
 package com.dsu.hello_server;
 
-import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 import org.springframework.stereotype.Service;
 
@@ -17,12 +17,11 @@ public class RoomService {
         this.roomRepository = roomRepository;
     }
 
-    public List<Room> search(Integer minCapacity, String keyword) {
+    public Stream<Room> search(Integer minCapacity, String keyword) {
         return roomRepository.findAll().stream()
-                .filter(room -> minCapacity == null || room.capacity() >= minCapacity)
+                .filter(room -> minCapacity == null || room.getCapacity() >= minCapacity)
                 .filter(room -> keyword == null || keyword.isBlank()
-                        || room.name().toLowerCase().contains(keyword.toLowerCase()))
-                .toList();
+                        || room.getName().toLowerCase().contains(keyword.toLowerCase()));
     }
 
     public Optional<Room> findById(Long id) {
@@ -41,7 +40,11 @@ public class RoomService {
     }
 
     public boolean delete(Long id) {
-        return roomRepository.deleteById(id);
+        if (!roomRepository.existsById(id)) {
+            return false;
+        }
+        roomRepository.deleteById(id);
+        return true;
     }
 
     private void checkCapacity(int capacity) {

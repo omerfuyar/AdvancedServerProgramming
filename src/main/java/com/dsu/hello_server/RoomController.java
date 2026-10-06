@@ -47,7 +47,7 @@ public class RoomController {
     public ResponseEntity<Room> create(@RequestBody RoomRequest request) {
         try {
             Room room = roomService.create(request.name(), request.capacity());
-            return ResponseEntity.created(URI.create("/api/rooms/" + room.id())).body(room);
+            return ResponseEntity.created(URI.create("/api/rooms/" + room.getId())).body(room);
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().build();
         }
