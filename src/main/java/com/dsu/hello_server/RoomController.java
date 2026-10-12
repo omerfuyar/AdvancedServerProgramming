@@ -2,6 +2,7 @@ package com.dsu.hello_server;
 
 import java.net.URI;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -71,11 +72,23 @@ public class RoomController {
     @Operation(summary = "Delete a room")
     @ApiResponse(responseCode = "204", description = "Deleted")
     @ApiResponse(responseCode = "404", description = "No such room")
+    @ApiResponse(responseCode = "409", description = "Room has reservations")
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
-        if (!roomService.delete(id)) {
-            return ResponseEntity.notFound().build();
+        try {
+            if (!roomService.delete(id)) {
+                return ResponseEntity.notFound().build();
+            }
+            return ResponseEntity.noContent().build();
+        } catch (RoomHasReservationsException e) {
+            return ResponseEntity.status(409).build();
         }
-        return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "Count rooms")
+    @ApiResponse(responseCode = "200", description = "Room count")
+    @GetMapping("/stats")
+    public Map<String, Long> stats() {
+        return Map.of("rooms", roomService.count());
     }
 }

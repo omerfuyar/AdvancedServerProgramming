@@ -1,8 +1,9 @@
 package com.dsu.hello_server;
 
+import java.util.List;
 import java.util.Optional;
-import java.util.stream.Stream;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -17,11 +18,23 @@ public class RoomService {
         this.roomRepository = roomRepository;
     }
 
-    public Stream<Room> search(Integer minCapacity, String keyword) {
-        return roomRepository.findAll().stream()
-                .filter(room -> minCapacity == null || room.getCapacity() >= minCapacity)
-                .filter(room -> keyword == null || keyword.isBlank()
-                        || room.getName().toLowerCase().contains(keyword.toLowerCase()));
+    public List<Room> search(Integer minCapacity, String keyword) {
+        boolean hasKeyword = keyword != null && !keyword.isBlank();
+        if (minCapacity == null && !hasKeyword) {
+            return roomRepository.findAll();
+        }
+        if (minCapacity == null) {
+            return roomRepository.findByNameContainingIgnoreCase(keyword);
+        }
+        if (!hasKeyword) {
+            return roomRepository.findByCapacityGreaterThanEqual(minCapacity);
+        }
+        return roomRepository.findByCapacityGreaterThanEqualAndNameContainingIgnoreCase(
+                minCapacity, keyword);
+    }
+
+    public long count() {
+        return roomRepository.count();
     }
 
     public Optional<Room> findById(Long id) {
@@ -43,7 +56,11 @@ public class RoomService {
         if (!roomRepository.existsById(id)) {
             return false;
         }
-        roomRepository.deleteById(id);
+        try {
+            roomRepository.deleteById(id);
+        } catch (DataIntegrityViolationException e) {
+            throw new RoomHasReservationsException(id, e);
+        }
         return true;
     }
 
