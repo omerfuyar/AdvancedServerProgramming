@@ -70,3 +70,50 @@ GET {{base}}/api/rooms/stats
 
 ### 15. Delete a room with reservations (409)
 DELETE {{base}}/api/rooms/1
+
+########## RESERVATIONS ##########
+
+### 16. Reservations for room 1 (200)
+GET {{base}}/api/rooms/1/reservations
+
+### 17. Reservations for a missing room (404)
+GET {{base}}/api/rooms/99/reservations
+
+### 18. Create a reservation (201)
+POST {{base}}/api/rooms/1/reservations
+Content-Type: application/json
+
+{"reservedBy": "Kim", "startTime": "2026-10-14T10:00:00", "endTime": "2026-10-14T11:00:00"}
+
+### 19. Overlapping reservation (409)
+POST {{base}}/api/rooms/1/reservations
+Content-Type: application/json
+
+{"reservedBy": "Kim", "startTime": "2026-10-06T10:30:00", "endTime": "2026-10-06T11:30:00"}
+
+### 20. Adjacent reservation (201)
+POST {{base}}/api/rooms/1/reservations
+Content-Type: application/json
+
+{"reservedBy": "Kim", "startTime": "2026-10-06T11:00:00", "endTime": "2026-10-06T12:00:00"}
+
+### 21. Invalid time range (400)
+POST {{base}}/api/rooms/1/reservations
+Content-Type: application/json
+
+{"reservedBy": "Kim", "startTime": "2026-10-06T12:00:00", "endTime": "2026-10-06T11:00:00"}
+
+### 22. Missing room (404)
+POST {{base}}/api/rooms/99/reservations
+Content-Type: application/json
+
+{"reservedBy": "Kim", "startTime": "2026-10-06T12:00:00", "endTime": "2026-10-06T13:00:00"}
+
+### 23. Reservations for one person (200)
+GET {{base}}/api/reservations?reservedBy=Mina
+
+### 24. Get one reservation (200)
+GET {{base}}/api/reservations/1
+
+### 25. Delete one reservation (204)
+DELETE {{base}}/api/reservations/1

@@ -80,7 +80,7 @@ public class RoomController {
                 return ResponseEntity.notFound().build();
             }
             return ResponseEntity.noContent().build();
-        } catch (RoomHasReservationsException e) {
+        } catch (ConflictException e) {
             return ResponseEntity.status(409).build();
         }
     }

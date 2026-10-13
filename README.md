@@ -2,14 +2,19 @@
 
 ## Endpoints
 
-| Method | Path               | Status codes  | Description                                                               |
-| ------ | ------------------ | ------------- | ------------------------------------------------------------------------- |
-| GET    | `/api/rooms`       | 200, 400      | List rooms with optional `minCapacity` and `keyword` filters.             |
-| GET    | `/api/rooms/{id}`  | 200, 404      | Get one room by id.                                                       |
-| POST   | `/api/rooms`       | 201, 400      | Create a room; capacity must be 1–20.                                     |
-| PUT    | `/api/rooms/{id}`  | 200, 404, 400 | Replace a room; capacity must be 1–20.                                    |
-| DELETE | `/api/rooms/{id}`  | 204, 404, 409 | Delete a room, or report a conflict when reservations still reference it. |
-| GET    | `/api/rooms/stats` | 200           | Return the room count as `{"rooms": 3}`.                                  |
+| Method | Path                                | Status codes       | Description                                                               |
+| ------ | ----------------------------------- | ------------------ | ------------------------------------------------------------------------- |
+| GET    | `/api/rooms`                        | 200, 400           | List rooms with optional `minCapacity` and `keyword` filters.             |
+| GET    | `/api/rooms/{id}`                   | 200, 404           | Get one room by id.                                                       |
+| POST   | `/api/rooms`                        | 201, 400           | Create a room; capacity must be 1–20.                                     |
+| PUT    | `/api/rooms/{id}`                   | 200, 404, 400      | Replace a room; capacity must be 1–20.                                    |
+| DELETE | `/api/rooms/{id}`                   | 204, 404, 409      | Delete a room, or report a conflict when reservations still reference it. |
+| GET    | `/api/rooms/stats`                  | 200                | Return the room count as `{"rooms": 3}`.                                  |
+| GET    | `/api/rooms/{roomId}/reservations`  | 200, 404           | List a room's reservations ordered by start time.                         |
+| POST   | `/api/rooms/{roomId}/reservations`  | 201, 400, 404, 409 | Book a room unless the time overlaps an existing reservation.             |
+| GET    | `/api/reservations?reservedBy=Mina` | 200                | List one person's reservations.                                           |
+| GET    | `/api/reservations/{id}`            | 200, 404           | Get one reservation.                                                      |
+| DELETE | `/api/reservations/{id}`            | 204, 404           | Cancel one reservation.                                                   |
 
 ## JDK
 
@@ -57,6 +62,11 @@ running `api.http`, because the request results assume this starting state.
 
 One room can have many reservations. Each reservation belongs to one room through
 `reservation.room_id`.
+
+Reservation responses expose `roomId` and `roomName` rather than serializing the
+JPA entity and its lazy room relationship. A booking is rejected with 409 when
+its interval overlaps an existing reservation for the same room; intervals that
+only touch at an endpoint are allowed.
 
 Create the database and user using `src/main/resources/new.sql`, then start the
 server with MySQL running locally. Use these connection settings:

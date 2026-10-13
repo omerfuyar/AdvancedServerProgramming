@@ -13,9 +13,11 @@ public class RoomService {
     private static final int MAX_CAPACITY = 20;
 
     private final RoomRepository roomRepository;
+    private final ReservationRepository reservationRepository;
 
-    public RoomService(RoomRepository roomRepository) {
+    public RoomService(RoomRepository roomRepository, ReservationRepository reservationRepository) {
         this.roomRepository = roomRepository;
+        this.reservationRepository = reservationRepository;
     }
 
     public List<Room> search(Integer minCapacity, String keyword) {
@@ -55,6 +57,9 @@ public class RoomService {
     public boolean delete(Long id) {
         if (!roomRepository.existsById(id)) {
             return false;
+        }
+        if (reservationRepository.existsByRoomId(id)) {
+            throw new ConflictException("Room " + id + " has reservations");
         }
         try {
             roomRepository.deleteById(id);
