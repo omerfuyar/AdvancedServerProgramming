@@ -18,7 +18,7 @@
 
 ## JDK
 
-I used OpenJDK 26.0.2.
+I used OpenJDK 21.0.12.1.
 
 ## Run
 
