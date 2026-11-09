@@ -23,14 +23,21 @@ public class Room {
     protected Room() {
     } // for Hibernate: it calls this via reflection, then sets the fields from the row
 
-    // Our constructor. new Room(null, ...) = new room (INSERT); new Room(id, ...) = existing row (merge -> UPDATE)
-    public Room(Long id, String name, int capacity) {
-        this.id = id;
+    // No id parameter: a new room gets its id from the database on save() (INSERT)
+    public Room(String name, int capacity) {
         this.name = name;
         this.capacity = capacity;
     }
 
-    // Jackson builds the JSON from these getters: {"id":..,"name":..,"capacity":..}
+    // Used by RoomService.update (PUT). Called on a MANAGED room (loaded inside a @Transactional
+    // method), so no save() is needed: at commit Hibernate compares the fields with the snapshot it
+    // took when loading the row (dirty checking) and sends an UPDATE only if something changed.
+    public void update(String name, int capacity) {
+        this.name = name;
+        this.capacity = capacity;
+    }
+
+    // Read by RoomResponse.from; the entity itself is never written as JSON
     public Long getId() {
         return id;
     }

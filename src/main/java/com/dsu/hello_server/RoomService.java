@@ -1,20 +1,21 @@
 package com.dsu.hello_server;
 
 import java.util.List;
-import java.util.Optional;
 
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
-// Business rules for rooms: the filters, the capacity 1-20 rule, what "replace" and "delete" mean.
-// Never returns ResponseEntity or status codes: Optional.empty()/false means "not found",
-// IllegalArgumentException means "bad request", ConflictException means "conflict".
+import jakarta.transaction.Transactional;
+
+// Business rules for rooms: the filters, the name and capacity rules, what "update" and "delete" mean.
+// Never returns ResponseEntity or status codes. It speaks in exceptions that ApiExceptionHandler maps:
+//   IllegalArgumentException -> 400, NotFoundException -> 404, ConflictException -> 409.
 @Service
 public class RoomService {
 
-    // The rule lives in ONE place, so POST and PUT can never disagree
+    // The rules live in ONE place, so POST and PUT can never disagree
     private static final int MIN_CAPACITY = 1;
     private static final int MAX_CAPACITY = 20;
+    private static final int MAX_NAME_LENGTH = 100; // room.name is VARCHAR(100)
 
     private final RoomRepository roomRepository;
     private final ReservationRepository reservationRepository; // added in Week 7 for the delete check
@@ -46,49 +47,56 @@ public class RoomService {
         return roomRepository.count(); // select count(*) from room
     }
 
-    public Optional<Room> findById(Long id) {
-        return roomRepository.findById(id);
+    public Room findById(Long id) {
+        return roomRepository.findById(id)
+                .orElseThrow(() -> new NotFoundException("Room " + id + " not found")); // 404
     }
 
     public Room create(String name, int capacity) {
-        checkCapacity(capacity); // 400 before touching the database
+        checkRequest(name, capacity); // 400 before touching the database
         // id null -> save() INSERTs; the returned Room carries the generated id
-        return roomRepository.save(new Room(null, name, capacity));
+        return roomRepository.save(new Room(name, capacity));
     }
 
-    // Replace = PUT. Only existing rooms can be replaced: missing id -> empty -> 404 (not "create it").
-    // save() with an id is a merge: Hibernate SELECTs the row, compares, then UPDATEs if changed.
-    // That is the select + update shown in the README for request 9.
-    public Optional<Room> replace(Long id, String name, int capacity) {
-        checkCapacity(capacity);
-        return roomRepository.findById(id)
-                .map(old -> roomRepository.save(new Room(id, name, capacity)));
+    // PUT. Only existing rooms can be updated: missing id -> 404 (not "create it").
+    // Dirty checking, no save():
+    //  1. findById inside the transaction returns a MANAGED Room; Hibernate keeps a snapshot of its fields
+    //  2. room.update(...) only changes the Java object
+    //  3. when the method returns, @Transactional commits; Hibernate flushes, compares the object with
+    //     the snapshot, and sends "update room set capacity=?, name=? where id=?" only if a field changed.
+    // Same values again (request 30) -> one select, no update.
+    @Transactional
+    public Room update(Long id, String name, int capacity) {
+        checkRequest(name, capacity); // 400 first: cheap, no SQL
+        Room room = findById(id);     // 404 if missing; otherwise managed
+        room.update(name, capacity);
+        return room;
     }
 
-    public boolean delete(Long id) {
+    public void delete(Long id) {
         if (!roomRepository.existsById(id)) {
-            return false; // 404
+            throw new NotFoundException("Room " + id + " not found"); // 404
         }
         // Week 7, strategy B "ask permission": check first, then act.
         if (reservationRepository.existsByRoomId(id)) {
             throw new ConflictException("Room " + id + " has reservations"); // 409
         }
-        // Week 6, strategy A "ask forgiveness": the foreign key in the database still guards
-        // the delete. If the check above was ever skipped (e.g. a reservation inserted in between),
-        // MySQL refuses and Spring raises DataIntegrityViolationException.
-        // Note: RoomController only catches ConflictException, so this path would answer 500.
-        // Throwing ConflictException here too would make it 409.
-        try {
-            roomRepository.deleteById(id);
-        } catch (DataIntegrityViolationException e) {
-            throw new RoomHasReservationsException(id, e);
-        }
-        return true; // 204
+        // Strategy A still guards behind it: if a reservation slips in between the check and the delete,
+        // the foreign key refuses, Spring raises DataIntegrityViolationException, and
+        // ApiExceptionHandler answers 409 as well.
+        roomRepository.deleteById(id); // returning normally = 204
     }
 
-    private void checkCapacity(int capacity) {
+    private void checkRequest(String name, int capacity) {
+        // Service speaks Java, not HTTP: ApiExceptionHandler maps these to 400.
+        // Without the name check a missing name would reach the NOT NULL column and fail as a database error.
+        if (name == null || name.isBlank()) {
+            throw new IllegalArgumentException("name is required");
+        }
+        if (name.length() > MAX_NAME_LENGTH) {
+            throw new IllegalArgumentException("name must be at most " + MAX_NAME_LENGTH + " characters");
+        }
         if (capacity < MIN_CAPACITY || capacity > MAX_CAPACITY) {
-            // Service speaks Java, not HTTP: the controller maps this to 400
             throw new IllegalArgumentException(
                     "capacity must be between " + MIN_CAPACITY + " and " + MAX_CAPACITY);
         }

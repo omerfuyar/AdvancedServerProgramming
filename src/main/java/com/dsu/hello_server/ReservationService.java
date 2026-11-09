@@ -2,20 +2,21 @@ package com.dsu.hello_server;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Optional;
 
 import org.springframework.stereotype.Service;
 
 import jakarta.transaction.Transactional;
 
 // Business rules for reservations. Knows nothing about HTTP: it takes plain values and
-// reports results the controller turns into status codes:
-//   returns a value          -> 200 / 201
-//   returns Optional.empty() -> 404 (room or reservation doesn't exist)
+// reports results that ApiExceptionHandler turns into status codes:
+//   returns a value                 -> 200 / 201 / 204
 //   throws IllegalArgumentException -> 400 (the request itself is wrong)
+//   throws NotFoundException        -> 404 (room or reservation doesn't exist)
 //   throws ConflictException        -> 409 (valid, but clashes with existing data)
 @Service // Spring creates exactly one instance and injects it into ReservationController
 public class ReservationService {
+
+    private static final int MAX_RESERVED_BY_LENGTH = 50; // reservation.reserved_by is VARCHAR(50)
 
     private final ReservationRepository reservationRepository;
     private final RoomRepository roomRepository; // needed to answer 404 for a missing room
@@ -27,13 +28,13 @@ public class ReservationService {
         this.roomRepository = roomRepository;
     }
 
-    // Optional<List>: empty = no such room (404); present (maybe an empty list) = 200.
     // Without the existsById check, room 99 would return [] with 200, which is wrong.
-    public Optional<List<Reservation>> findByRoom(Long roomId) {
+    // A room with no reservations is still 200 with [].
+    public List<Reservation> findByRoom(Long roomId) {
         if (!roomRepository.existsById(roomId)) {
-            return Optional.empty();
+            throw new NotFoundException("Room " + roomId + " not found"); // 404
         }
-        return Optional.of(reservationRepository.findByRoomIdOrderByStartTime(roomId));
+        return reservationRepository.findByRoomIdOrderByStartTime(roomId);
     }
 
     // Uses the join fetch query, so one SQL statement no matter how many rooms are involved
@@ -41,8 +42,9 @@ public class ReservationService {
         return reservationRepository.findByReservedByWithRoom(reservedBy);
     }
 
-    public Optional<Reservation> findById(Long id) {
-        return reservationRepository.findById(id);
+    public Reservation findById(Long id) {
+        return reservationRepository.findById(id)
+                .orElseThrow(() -> new NotFoundException("Reservation " + id + " not found")); // 404
     }
 
     // @Transactional: read (find room, count overlaps) and write (save) as one unit of work;
@@ -52,7 +54,7 @@ public class ReservationService {
     // Limit: it does NOT stop two simultaneous requests from both counting 0 and both inserting.
     // A real guarantee needs a row lock or a database constraint.
     @Transactional
-    public Optional<Reservation> create(
+    public Reservation create(
             Long roomId,
             String reservedBy,
             LocalDateTime startTime,
@@ -60,35 +62,39 @@ public class ReservationService {
         // Fixed order: cheap checks first, then ask the database.
         checkRequest(reservedBy, startTime, endTime); // 400: throws before any SQL
 
-        Optional<Room> room = roomRepository.findById(roomId);
-        if (room.isEmpty()) {
-            return Optional.empty(); // 404
-        }
+        Room room = roomRepository.findById(roomId)
+                .orElseThrow(() -> new NotFoundException("Room " + roomId + " not found")); // 404
         if (reservationRepository.countOverlapping(roomId, startTime, endTime) > 0) {
             throw new ConflictException("Room " + roomId + " is already reserved at that time"); // 409
         }
         // id is null -> save() does an INSERT, and the generated id is written back into the object
-        return Optional.of(reservationRepository.save(
-                new Reservation(room.get(), reservedBy, startTime, endTime)));
+        return reservationRepository.save(new Reservation(room, reservedBy, startTime, endTime));
     }
 
-    // false = nothing to delete (404); true = deleted (204).
-    // deleteById returns void, so we check existence first to tell the two apart.
-    public boolean delete(Long id) {
+    // deleteById does nothing for a missing id, so we check existence first to answer 404.
+    public void delete(Long id) {
         if (!reservationRepository.existsById(id)) {
-            return false;
+            throw new NotFoundException("Reservation " + id + " not found"); // 404
         }
-        reservationRepository.deleteById(id);
-        return true;
+        reservationRepository.deleteById(id); // returning normally = 204
     }
 
     // Validation of the request itself -> IllegalArgumentException -> 400.
-    // isBefore (not !isAfter) also rejects start == end, a zero-length booking.
+    // One message per rule, so the ApiError says exactly what to fix.
     private void checkRequest(String reservedBy, LocalDateTime startTime, LocalDateTime endTime) {
-        if (reservedBy == null || reservedBy.isBlank()
-                || startTime == null || endTime == null
-                || !startTime.isBefore(endTime)) {
-            throw new IllegalArgumentException("reservedBy and a valid time range are required");
+        if (reservedBy == null || reservedBy.isBlank()) {
+            throw new IllegalArgumentException("reservedBy is required");
+        }
+        if (reservedBy.length() > MAX_RESERVED_BY_LENGTH) {
+            throw new IllegalArgumentException(
+                    "reservedBy must be at most " + MAX_RESERVED_BY_LENGTH + " characters");
+        }
+        if (startTime == null || endTime == null) {
+            throw new IllegalArgumentException("startTime and endTime are required");
+        }
+        // isBefore (not !isAfter) also rejects start == end, a zero-length booking
+        if (!startTime.isBefore(endTime)) {
+            throw new IllegalArgumentException("startTime must be before endTime");
         }
     }
 }

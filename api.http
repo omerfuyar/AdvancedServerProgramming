@@ -1,5 +1,9 @@
 @base = http://localhost:8080
 
+# Run reset.sql first, then the requests in order: ids and results depend on it.
+# Every error answer (4xx/5xx) has the ApiError body:
+# {"timestamp": "...", "status": 404, "error": "Not Found", "message": "...", "path": "..."}
+
 ########## GET /api/rooms — list, with optional filters ##########
 
 ### 1. List all rooms (200)
@@ -33,15 +37,15 @@ Content-Type: application/json
 
 {"name": "Room C", "capacity": 8}
 
-########## PUT /api/rooms/{id} — replace ##########
+########## PUT /api/rooms/{id} — update ##########
 
-### 9. Replace the new room (200)
+### 9. Update the new room (200; one select, one update)
 PUT {{base}}/api/rooms/4
 Content-Type: application/json
 
 {"name": "Room C (renamed)", "capacity": 12}
 
-### 10. Replace a room that does not exist (404)
+### 10. Update a room that does not exist (404)
 PUT {{base}}/api/rooms/999
 Content-Type: application/json
 
@@ -66,54 +70,147 @@ Content-Type: application/json
 ### 14. Count rooms (200; Hibernate prints SELECT COUNT)
 GET {{base}}/api/rooms/stats
 
-########## Conflict ##########
+########## Week 7 — reservations ##########
 
-### 15. Delete a room with reservations (409)
-DELETE {{base}}/api/rooms/1
-
-########## RESERVATIONS ##########
-
-### 16. Reservations for room 1 (200)
+### 15. Reservations for room 1 (200, 3 items)
 GET {{base}}/api/rooms/1/reservations
 
-### 17. Reservations for a missing room (404)
+### 16. Reservations for a missing room (404)
 GET {{base}}/api/rooms/99/reservations
 
-### 18. Create a reservation (201)
+### 17. Book room 1, Kim, 14 Oct 10–11 (201 + Location: /api/reservations/6)
 POST {{base}}/api/rooms/1/reservations
 Content-Type: application/json
 
 {"reservedBy": "Kim", "startTime": "2026-10-14T10:00:00", "endTime": "2026-10-14T11:00:00"}
 
-### 19. Overlapping reservation (409)
+### 18. Overlaps Mina, 6 Oct 10:30–11:30 (409)
 POST {{base}}/api/rooms/1/reservations
 Content-Type: application/json
 
 {"reservedBy": "Kim", "startTime": "2026-10-06T10:30:00", "endTime": "2026-10-06T11:30:00"}
 
-### 20. Adjacent reservation (201)
+### 19. Starts when Mina ends, 6 Oct 11:00–12:00 (201 + Location: /api/reservations/7)
 POST {{base}}/api/rooms/1/reservations
 Content-Type: application/json
 
 {"reservedBy": "Kim", "startTime": "2026-10-06T11:00:00", "endTime": "2026-10-06T12:00:00"}
 
-### 21. Invalid time range (400)
+### 20. End before start (400)
 POST {{base}}/api/rooms/1/reservations
 Content-Type: application/json
 
 {"reservedBy": "Kim", "startTime": "2026-10-06T12:00:00", "endTime": "2026-10-06T11:00:00"}
 
-### 22. Missing room (404)
+### 21. Book a missing room (404)
 POST {{base}}/api/rooms/99/reservations
 Content-Type: application/json
 
 {"reservedBy": "Kim", "startTime": "2026-10-06T12:00:00", "endTime": "2026-10-06T13:00:00"}
 
-### 23. Reservations for one person (200)
+### 22. Reservations for one person (200, 2 items, one select)
 GET {{base}}/api/reservations?reservedBy=Mina
 
-### 24. Get one reservation (200)
-GET {{base}}/api/reservations/1
+### 23. Delete a room with reservations (409)
+DELETE {{base}}/api/rooms/1
 
-### 25. Delete one reservation (204)
-DELETE {{base}}/api/reservations/1
+########## Assignment 5 — one reservation ##########
+
+### 24. Get one reservation (200; the Location from 17 now opens)
+GET {{base}}/api/reservations/6
+
+### 25. Get a reservation that does not exist (404)
+GET {{base}}/api/reservations/99
+
+### 26. Cancel a reservation (204)
+DELETE {{base}}/api/reservations/7
+
+### 27. Cancel the same reservation again (404)
+DELETE {{base}}/api/reservations/7
+
+########## Lab E — PUT with dirty checking ##########
+
+### 28. Get a room that does not exist (404)
+GET {{base}}/api/rooms/99
+
+### 29. Update room 2 (200; one select, then one update at commit — no save())
+PUT {{base}}/api/rooms/2
+Content-Type: application/json
+
+{"name": "Study Pod", "capacity": 6}
+
+### 30. Same body again (200; one select and NO update: nothing is dirty)
+PUT {{base}}/api/rooms/2
+Content-Type: application/json
+
+{"name": "Study Pod", "capacity": 6}
+
+### 31. Update with capacity 25 (400; no SQL at all)
+PUT {{base}}/api/rooms/2
+Content-Type: application/json
+
+{"name": "Study Pod", "capacity": 25}
+
+########## Lab E — every error has the ApiError body ##########
+
+### 32. Id is not a number (400)
+PUT {{base}}/api/rooms/abc
+Content-Type: application/json
+
+{"name": "Study Pod", "capacity": 6}
+
+### 33. Create a room without a name (400)
+POST {{base}}/api/rooms
+Content-Type: application/json
+
+{"capacity": 5}
+
+### 34. Body is not valid JSON (400)
+POST {{base}}/api/rooms
+Content-Type: application/json
+
+{"name": "Broken", "capacity":
+
+### 35. Search without reservedBy (400)
+GET {{base}}/api/reservations
+
+### 36. startTime is not a date (400)
+POST {{base}}/api/rooms/1/reservations
+Content-Type: application/json
+
+{"reservedBy": "Kim", "startTime": "tomorrow", "endTime": "2026-10-14T11:00:00"}
+
+### 37. Book without reservedBy (400)
+POST {{base}}/api/rooms/2/reservations
+Content-Type: application/json
+
+{"startTime": "2026-10-20T10:00:00", "endTime": "2026-10-20T11:00:00"}
+
+### 38. Overlaps Kim's booking from 17, 14 Oct 10:30–11:30 (409)
+POST {{base}}/api/rooms/1/reservations
+Content-Type: application/json
+
+{"reservedBy": "Lee", "startTime": "2026-10-14T10:30:00", "endTime": "2026-10-14T11:30:00"}
+
+### 39. Delete room 2, which has reservations (409)
+DELETE {{base}}/api/rooms/2
+
+### 40. A URL with no endpoint (404)
+GET {{base}}/api/nothing
+
+### 41. Room 2 after 29–31 (200, capacity 6: 29 was saved without save(), 31 changed nothing)
+GET {{base}}/api/rooms/2
+
+########## My own failure requests ##########
+
+### 42. Zero-length booking: start equals end (400)
+POST {{base}}/api/rooms/3/reservations
+Content-Type: application/json
+
+{"reservedBy": "Lee", "startTime": "2026-10-20T10:00:00", "endTime": "2026-10-20T10:00:00"}
+
+### 43. Bad capacity on a missing room (400, not 404: the body is checked before the room is loaded)
+PUT {{base}}/api/rooms/99
+Content-Type: application/json
+
+{"name": "Nope", "capacity": 0}
