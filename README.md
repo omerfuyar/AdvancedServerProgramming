@@ -15,6 +15,11 @@
 | GET    | `/api/reservations?reservedBy=Mina` | 200, 400           | List one person's reservations.                                           |
 | GET    | `/api/reservations/{id}`            | 200, 404           | Get one reservation.                                                      |
 | DELETE | `/api/reservations/{id}`            | 204, 404           | Cancel one reservation.                                                   |
+| POST   | `/api/auth/signup`                  | 201, 400, 409      | Create a USER account; the answer has no password and no hash.            |
+| POST   | `/api/auth/login`                   | 200, 401           | Log in; answers an access token (JWT) and a refresh token.                |
+| POST   | `/api/auth/refresh`                 | 200, 401           | Exchange a refresh token for new tokens.                                  |
+| POST   | `/api/auth/logout`                  | 204                | Delete a refresh token.                                                   |
+| GET    | `/api/auth/me`                      | 200, 401           | The caller's username and authorities.                                    |
 
 ## JDK
 
@@ -33,8 +38,19 @@ gradlew.bat bootRun
 ```
 
 The server starts on <http://localhost:8080>. Run `reset.sql`, then open
-`api.http` and run requests 1 to 43 in order. Requests 42 and 43 are my own
-failure requests.
+`api.http` and run requests 1 to 62 in order. Requests 57 and 58 are my own
+failure requests from Assignment 6, and 59 to 62 test the refresh token.
+`api.http` keeps the token from request 50 with `client.global.set`, so run it
+with the IntelliJ HTTP Client.
+
+The JWT signing key is read from the `JWT_SECRET` environment variable (at
+least 32 bytes). Without it, the class-only default in `application.properties`
+is used. For example:
+
+```sh
+export JWT_SECRET=a-long-random-secret-of-at-least-32-bytes
+./gradlew bootRun
+```
 
 ## Database
 
@@ -53,14 +69,16 @@ Then run `reset.sql` as `roomapp` while using the `roomdb` database. For example
 mysql -u roomapp -p roomdb < reset.sql
 ```
 
-Enter `roomapp1234` when prompted. `reset.sql` drops and recreates both tables
-and inserts the three rooms and five reservations from class. Do this before
+Enter `roomapp1234` when prompted. `reset.sql` drops and recreates the tables
+and inserts the three rooms, five reservations and three accounts from class. Do this before
 running `api.http`, because the request results assume this starting state.
 
 | Table         | Columns                                                                                           |
 | ------------- | ------------------------------------------------------------------------------------------------- |
 | `room`        | `id` (primary key), `name`, `capacity`                                                            |
 | `reservation` | `id` (primary key), `room_id` (foreign key to `room.id`), `reserved_by`, `start_time`, `end_time` |
+| `app_user`    | `id` (primary key), `username` (unique), `password_hash` (BCrypt), `role` (`USER` or `ADMIN`)      |
+| `refresh_token` | `id` (primary key), `token_hash` (SHA-256, unique), `user_id` (foreign key to `app_user.id`), `expires_at` |
 
 One room can have many reservations. Each reservation belongs to one room through
 `reservation.room_id`.
@@ -146,6 +164,7 @@ Example: request 18 books room 1 while Mina has it.
 | Status | Meaning in this API | Thrown by / caused by | Examples in `api.http` |
 | ------ | ------------------- | --------------------- | ---------------------- |
 | 400 Bad Request | The request itself is wrong. Fix the request and send it again. | `IllegalArgumentException` from a service (missing name, capacity not 1–20, missing `reservedBy`, start not before end), or Spring cannot read the request (`abc` for a number, invalid JSON, a missing required parameter). | 6, 13, 20, 31–37, 42, 43 |
+| 401 Unauthorized | We do not know who is calling: no login, a wrong password, or a bad token. One of three messages: `login required`, `wrong username or password`, `token is invalid or expired`. | Spring Security's filters (through `ApiAuthenticationEntryPoint`) or `AuthService` throw an `AuthenticationException`. | 42, 47, 51, 54, 55, 56, 60, 62 |
 | 404 Not Found | The room or reservation in the URL does not exist, or no endpoint has that URL. | `NotFoundException` from a service, or an unknown path. | 10, 12, 16, 21, 25, 27, 28, 40 |
 | 409 Conflict | The request is valid, but it clashes with data that already exists. | `ConflictException` from a service (a booking overlaps, a room still has reservations), or the database refuses a write (`DataIntegrityViolationException`). | 18, 23, 38, 39 |
 | 500 Internal Server Error | A bug on our side, not the client's fault. The message is always `"Unexpected error"`. The details go to the server console, never to the client. | Any other exception. | none: no request should cause it |
@@ -153,6 +172,72 @@ Example: request 18 books room 1 while Mina has it.
 The order of checks in a service is always 400, then 404, then 409: cheap checks
 on the request come first, before any SQL. That is why request 43 answers 400
 for a room that does not exist.
+
+## Authentication
+
+Passwords are stored only as BCrypt hashes in `app_user.password_hash`. No
+response contains a password or a hash: accounts are answered as `UserResponse`
+(`id`, `username`, `role`).
+
+### Public endpoints
+
+| Method | Path | Login |
+| ------ | ---- | ----- |
+| GET | `/api/rooms`, `/api/rooms/{id}`, `/api/rooms/stats`, `/api/rooms/{roomId}/reservations` | not needed |
+| POST | `/api/auth/signup`, `/api/auth/login`, `/api/auth/refresh`, `/api/auth/logout` | not needed |
+| GET | `/swagger-ui.html`, `/v3/api-docs` | not needed |
+| GET | `/api/reservations/**`, `/api/auth/me` | needed |
+| POST, PUT, DELETE | everything else | needed |
+
+A request that sends a token is always checked, even on a public endpoint: a
+broken token answers 401 (request 55).
+
+### Getting and sending a token
+
+Log in once:
+
+```http
+POST http://localhost:8080/api/auth/login
+Content-Type: application/json
+
+{"username": "mina", "password": "mina1234"}
+```
+
+```json
+{
+  "accessToken": "eyJhbGciOiJIUzI1NiJ9...",
+  "tokenType": "Bearer",
+  "expiresIn": 1800,
+  "refreshToken": "JQM6NI-Txg7JIivZhn0X8..."
+}
+```
+
+Then send the access token on every request:
+
+```http
+POST http://localhost:8080/api/rooms
+Authorization: Bearer eyJhbGciOiJIUzI1NiJ9...
+Content-Type: application/json
+
+{"name": "Room C", "capacity": 8}
+```
+
+The access token is a JWT signed with HS256 and lives 30 minutes. Its payload
+has `iss` (`room-api`), `sub` (the username), `role`, `iat` and `exp`. HTTP Basic
+(`Authorization: Basic base64(username:password)`) also works.
+
+The refresh token (optional challenge) lives 7 days. Only its SHA-256 is stored,
+in `refresh_token`. `POST /api/auth/refresh` with `{"refreshToken": "..."}`
+deletes it and answers a new pair; `POST /api/auth/logout` with the same body
+deletes it. A used, expired or deleted refresh token answers 401.
+
+### Sample accounts
+
+| Username | Password | Role |
+| -------- | -------- | ---- |
+| `mina` | `mina1234` | USER |
+| `omar` | `omar1234` | USER |
+| `admin` | `admin1234` | ADMIN |
 
 ## AI use
 

@@ -6,6 +6,9 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.oauth2.server.resource.InvalidBearerTokenException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -22,6 +25,7 @@ import jakarta.servlet.http.HttpServletRequest;
 //
 //   service throws IllegalArgumentException -> 400  the request itself is wrong
 //   Spring cannot read the request          -> 400  bad JSON, "abc" for a number, missing parameter
+//   not logged in, bad password, bad token  -> 401  also from the security filters (ApiAuthenticationEntryPoint)
 //   service throws NotFoundException        -> 404  the room/reservation does not exist
 //   unknown URL                             -> 404
 //   service throws ConflictException        -> 409  valid, but clashes with existing data
@@ -58,6 +62,20 @@ public class ApiExceptionHandler {
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ApiError> unreadableBody(HttpMessageNotReadableException e, HttpServletRequest request) {
         return error(HttpStatus.BAD_REQUEST, "Request body is missing or is not valid JSON", request);
+    }
+
+    // ---------- 401: we do not know who you are ----------
+
+    // Thrown by the security filters (through ApiAuthenticationEntryPoint) or by AuthService.login
+    @ExceptionHandler(AuthenticationException.class)
+    public ResponseEntity<ApiError> unauthorized(AuthenticationException e, HttpServletRequest request) {
+        String message = "login required";
+        if (e instanceof BadCredentialsException) {
+            message = "wrong username or password";
+        } else if (e instanceof InvalidBearerTokenException) {
+            message = "token is invalid or expired";
+        }
+        return error(HttpStatus.UNAUTHORIZED, message, request);
     }
 
     // ---------- 404: it does not exist ----------
