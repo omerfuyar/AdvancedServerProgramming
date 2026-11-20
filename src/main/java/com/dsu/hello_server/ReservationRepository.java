@@ -14,11 +14,6 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
     // SQL: where room_id = ? order by start_time  (sorting in SQL, not in Java)
     List<Reservation> findByRoomIdOrderByStartTime(Long roomId);
 
-    // First version of the "by person" search. It causes N+1 queries (1 for the list + 1 per room
-    // when ReservationResponse.from() calls getName()). Not used any more: replaced by
-    // findByReservedByWithRoom below.
-    List<Reservation> findByReservedByOrderByStartTime(String reservedBy);
-
     // select count(...) > 0 ... where room_id = ?  -> used by RoomService.delete for the 409
     boolean existsByRoomId(Long roomId);
 
@@ -38,13 +33,28 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
             @Param("startTime") LocalDateTime startTime,
             @Param("endTime") LocalDateTime endTime);
 
-    // The fix for N+1: "join fetch" joins room in the same SQL and fills the room field
-    // with real Room objects instead of proxies. One select instead of 1 + number of rooms.
+    // Lab G: the same rule, without the reservation being moved, so it never overlaps itself.
+    @Query("""
+            select count(r) from Reservation r
+            where r.room.id = :roomId
+              and r.id <> :id
+              and r.startTime < :endTime
+              and r.endTime > :startTime
+            """)
+    long countOverlappingExcept(
+            @Param("roomId") Long roomId,
+            @Param("id") Long id,
+            @Param("startTime") LocalDateTime startTime,
+            @Param("endTime") LocalDateTime endTime);
+
+    // GET /api/reservations/mine. "join fetch" loads room and owner in the same SQL:
+    // one select instead of 1 + number of rooms (N+1).
     @Query("""
             select r from Reservation r
             join fetch r.room
-            where r.reservedBy = :name
+            join fetch r.owner
+            where r.owner.username = :username
             order by r.startTime
             """)
-    List<Reservation> findByReservedByWithRoom(@Param("name") String name);
+    List<Reservation> findMine(@Param("username") String username);
 }

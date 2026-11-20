@@ -1,10 +1,13 @@
 package com.dsu.hello_server;
 
+import static org.springframework.http.HttpMethod.DELETE;
 import static org.springframework.http.HttpMethod.GET;
 import static org.springframework.http.HttpMethod.POST;
+import static org.springframework.http.HttpMethod.PUT;
 import static org.springframework.security.config.http.SessionCreationPolicy.STATELESS;
 
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
@@ -21,7 +24,12 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
+import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 
@@ -31,8 +39,10 @@ public class SecurityConfig {
     // Rules are read from the top: the first match wins.
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http,
-            ApiAuthenticationEntryPoint entryPoint) throws Exception {
+            ApiAuthenticationEntryPoint entryPoint,
+            ApiAccessDeniedHandler deniedHandler) throws Exception {
         http
+                .cors(Customizer.withDefaults())
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(s -> s.sessionCreationPolicy(STATELESS))
                 .authorizeHttpRequests(auth -> auth
@@ -43,13 +53,48 @@ public class SecurityConfig {
                         .requestMatchers(GET, "/api/auth/me").authenticated()
                         .requestMatchers(GET, "/api/reservations/**").authenticated()
                         .requestMatchers(GET, "/api/**").permitAll()
+                        // Rule D: only an admin changes rooms. "/*" is one segment, so booking
+                        // (/api/rooms/1/reservations) stays open to every logged-in user.
+                        .requestMatchers(POST, "/api/rooms").hasRole("ADMIN")
+                        .requestMatchers(PUT, "/api/rooms/*").hasRole("ADMIN")
+                        .requestMatchers(DELETE, "/api/rooms/*").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .httpBasic(b -> b.authenticationEntryPoint(entryPoint))
                 .oauth2ResourceServer(o -> o
                         .authenticationEntryPoint(entryPoint)
-                        .jwt(Customizer.withDefaults()))
-                .exceptionHandling(e -> e.authenticationEntryPoint(entryPoint));
+                        .accessDeniedHandler(deniedHandler)
+                        .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())))
+                .exceptionHandling(e -> e
+                        .authenticationEntryPoint(entryPoint)
+                        .accessDeniedHandler(deniedHandler));
         return http.build();
+    }
+
+    // The token's role claim "USER" becomes ROLE_USER: the same authority Basic gets from
+    // DbUserDetailsService, so one rule works for both.
+    @Bean
+    public JwtAuthenticationConverter jwtAuthenticationConverter() {
+        JwtGrantedAuthoritiesConverter roles = new JwtGrantedAuthoritiesConverter();
+        roles.setAuthoritiesClaimName("role");
+        roles.setAuthorityPrefix("ROLE_");
+
+        JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
+        converter.setJwtGrantedAuthoritiesConverter(roles);
+        return converter;
+    }
+
+    // Only the listed pages may read our answers in a browser. Never "*" with tokens.
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource(
+            @Value("${app.cors.allowed-origins}") String origins) {
+        CorsConfiguration config = new CorsConfiguration();
+        config.setAllowedOrigins(List.of(origins.split(",")));
+        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE"));
+        config.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+        config.setExposedHeaders(List.of("Location"));
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/api/**", config);
+        return source;
     }
 
     @Bean

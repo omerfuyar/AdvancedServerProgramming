@@ -6,6 +6,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.oauth2.server.resource.InvalidBearerTokenException;
@@ -26,6 +27,8 @@ import jakarta.servlet.http.HttpServletRequest;
 //   service throws IllegalArgumentException -> 400  the request itself is wrong
 //   Spring cannot read the request          -> 400  bad JSON, "abc" for a number, missing parameter
 //   not logged in, bad password, bad token  -> 401  also from the security filters (ApiAuthenticationEntryPoint)
+//   service throws ForbiddenException       -> 403  not the caller's reservation (rule C)
+//   a URL rule refuses (rule D)             -> 403  through ApiAccessDeniedHandler
 //   service throws NotFoundException        -> 404  the room/reservation does not exist
 //   unknown URL                             -> 404
 //   service throws ConflictException        -> 409  valid, but clashes with existing data
@@ -76,6 +79,20 @@ public class ApiExceptionHandler {
             message = "token is invalid or expired";
         }
         return error(HttpStatus.UNAUTHORIZED, message, request);
+    }
+
+    // ---------- 403: we know you, and the answer is no ----------
+
+    // Our own, thrown by ReservationService (rule C)
+    @ExceptionHandler(ForbiddenException.class)
+    public ResponseEntity<ApiError> forbidden(ForbiddenException e, HttpServletRequest request) {
+        return error(HttpStatus.FORBIDDEN, e.getMessage(), request);
+    }
+
+    // Spring's, from hasRole("ADMIN") in SecurityConfig (rule D)
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ApiError> accessDenied(AccessDeniedException e, HttpServletRequest request) {
+        return error(HttpStatus.FORBIDDEN, "admin role required", request);
     }
 
     // ---------- 404: it does not exist ----------

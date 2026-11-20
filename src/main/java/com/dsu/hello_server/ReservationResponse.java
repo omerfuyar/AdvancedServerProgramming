@@ -10,7 +10,7 @@ public record ReservationResponse(
         Long id,
         Long roomId,
         String roomName,
-        String reservedBy,
+        String owner,
         LocalDateTime startTime,
         LocalDateTime endTime) {
 
@@ -21,7 +21,7 @@ public record ReservationResponse(
                 reservation.getRoom().getId(),   // proxy already knows its id: no SQL
                 reservation.getRoom().getName(), // first real access to the proxy: SELECT from room
                                                  // (unless join fetch already loaded it)
-                reservation.getReservedBy(),
+                reservation.getOwner().getUsername(), // the username, never the AppUser entity
                 reservation.getStartTime(),
                 reservation.getEndTime());
     }

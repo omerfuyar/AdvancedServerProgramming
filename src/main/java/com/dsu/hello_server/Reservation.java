@@ -30,8 +30,12 @@ public class Reservation {
     @JoinColumn(name = "room_id") // the column that holds the foreign key
     private Room room;
 
+    // Week 11: the owner is an account, taken from the login, never typed by the client.
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "owner_id")
+    private AppUser owner;
+
     // No @Column needed: Spring Boot's naming rule maps camelCase -> snake_case
-    private String reservedBy;          // reserved_by  VARCHAR(50)
     private LocalDateTime startTime;    // start_time   DATETIME (date + time, no time zone)
     private LocalDateTime endTime;      // end_time     DATETIME
 
@@ -43,9 +47,19 @@ public class Reservation {
     } // for Hibernate
 
     // No id parameter: a new reservation gets its id from the database on save().
-    public Reservation(Room room, String reservedBy, LocalDateTime startTime, LocalDateTime endTime) {
+    public Reservation(Room room, AppUser owner, LocalDateTime startTime, LocalDateTime endTime) {
         this.room = room;
-        this.reservedBy = reservedBy;
+        this.owner = owner;
+        this.startTime = startTime;
+        this.endTime = endTime;
+    }
+
+    public boolean isOwnedBy(String username) {
+        return owner.getUsername().equals(username);
+    }
+
+    // Lab G: called on a managed reservation, so dirty checking writes the UPDATE at commit.
+    public void reschedule(LocalDateTime startTime, LocalDateTime endTime) {
         this.startTime = startTime;
         this.endTime = endTime;
     }
@@ -58,8 +72,8 @@ public class Reservation {
         return room;
     }
 
-    public String getReservedBy() {
-        return reservedBy;
+    public AppUser getOwner() {
+        return owner;
     }
 
     public LocalDateTime getStartTime() {

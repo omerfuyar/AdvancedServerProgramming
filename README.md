@@ -6,15 +6,16 @@
 | ------ | ----------------------------------- | ------------------ | ------------------------------------------------------------------------- |
 | GET    | `/api/rooms`                        | 200, 400           | List rooms with optional `minCapacity` and `keyword` filters.             |
 | GET    | `/api/rooms/{id}`                   | 200, 404           | Get one room by id.                                                       |
-| POST   | `/api/rooms`                        | 201, 400           | Create a room; name is required and capacity must be 1–20.                |
-| PUT    | `/api/rooms/{id}`                   | 200, 400, 404      | Update a room; capacity must be 1–20.                                     |
-| DELETE | `/api/rooms/{id}`                   | 204, 404, 409      | Delete a room, or report a conflict when reservations still reference it. |
+| POST   | `/api/rooms`                        | 201, 400, 401, 403 | Create a room (admin); name is required and capacity must be 1–20.        |
+| PUT    | `/api/rooms/{id}`                   | 200, 400, 401, 403, 404 | Update a room (admin); capacity must be 1–20.                        |
+| DELETE | `/api/rooms/{id}`                   | 204, 401, 403, 404, 409 | Delete a room (admin), or 409 when reservations still reference it.  |
 | GET    | `/api/rooms/stats`                  | 200                | Return the room count as `{"rooms": 3}`.                                  |
 | GET    | `/api/rooms/{roomId}/reservations`  | 200, 404           | List a room's reservations ordered by start time.                         |
-| POST   | `/api/rooms/{roomId}/reservations`  | 201, 400, 404, 409 | Book a room unless the time overlaps an existing reservation.             |
-| GET    | `/api/reservations?reservedBy=Mina` | 200, 400           | List one person's reservations.                                           |
-| GET    | `/api/reservations/{id}`            | 200, 404           | Get one reservation.                                                      |
-| DELETE | `/api/reservations/{id}`            | 204, 404           | Cancel one reservation.                                                   |
+| POST   | `/api/rooms/{roomId}/reservations`  | 201, 400, 401, 404, 409 | Book a room as the caller unless the time overlaps.                  |
+| GET    | `/api/reservations/mine`            | 200, 401           | List the caller's reservations.                                           |
+| GET    | `/api/reservations/{id}`            | 200, 401, 403, 404 | Get one reservation (owner or admin).                                     |
+| PUT    | `/api/reservations/{id}`            | 200, 400, 401, 403, 404, 409 | Move a reservation to a new time (owner only).              |
+| DELETE | `/api/reservations/{id}`            | 204, 401, 403, 404 | Cancel one reservation (owner or admin).                                  |
 | POST   | `/api/auth/signup`                  | 201, 400, 409      | Create a USER account; the answer has no password and no hash.            |
 | POST   | `/api/auth/login`                   | 200, 401           | Log in; answers an access token (JWT) and a refresh token.                |
 | POST   | `/api/auth/refresh`                 | 200, 401           | Exchange a refresh token for new tokens.                                  |
@@ -38,19 +39,33 @@ gradlew.bat bootRun
 ```
 
 The server starts on <http://localhost:8080>. Run `reset.sql`, then open
-`api.http` and run requests 1 to 62 in order. Requests 57 and 58 are my own
-failure requests from Assignment 6, and 59 to 62 test the refresh token.
-`api.http` keeps the token from request 50 with `client.global.set`, so run it
-with the IntelliJ HTTP Client.
+`api.http` and run requests 1 to 82 in order. Requests 83 and 84 are my own
+failure requests, and 85 to 88 test the refresh token. `api.http` keeps the
+tokens from requests 50 and 58 with `client.global.set`, so run it with the
+IntelliJ HTTP Client.
 
-The JWT signing key is read from the `JWT_SECRET` environment variable (at
-least 32 bytes). Without it, the class-only default in `application.properties`
-is used. For example:
+## Settings
+
+Secrets are read from environment variables. Each has a class-only default in
+`application.properties`, so the project starts without them.
+
+| Variable | Property | Class-only default |
+| -------- | -------- | ------------------ |
+| `DB_PASSWORD` | `spring.datasource.password` | `roomapp1234` |
+| `JWT_SECRET` | `app.jwt.secret` (at least 32 bytes) | `week10-dev-only-secret-change-me-0123456789` |
+| `CORS_ORIGINS` | `app.cors.allowed-origins` (comma separated) | `http://localhost:5500,http://127.0.0.1:5500` |
+
+For example (macOS / Linux):
 
 ```sh
+export DB_PASSWORD=roomapp1234
 export JWT_SECRET=a-long-random-secret-of-at-least-32-bytes
+export CORS_ORIGINS=http://localhost:5500
 ./gradlew bootRun
 ```
+
+Windows cmd: `set JWT_SECRET=...`, PowerShell: `$env:JWT_SECRET="..."`.
+IntelliJ: Run configuration → Environment variables.
 
 ## Database
 
@@ -75,16 +90,17 @@ running `api.http`, because the request results assume this starting state.
 
 | Table         | Columns                                                                                           |
 | ------------- | ------------------------------------------------------------------------------------------------- |
-| `room`        | `id` (primary key), `name`, `capacity`                                                            |
-| `reservation` | `id` (primary key), `room_id` (foreign key to `room.id`), `reserved_by`, `start_time`, `end_time` |
 | `app_user`    | `id` (primary key), `username` (unique), `password_hash` (BCrypt), `role` (`USER` or `ADMIN`)      |
+| `room`        | `id` (primary key), `name`, `capacity`                                                            |
+| `reservation` | `id` (primary key), `room_id` (foreign key to `room.id`), `owner_id` (foreign key to `app_user.id`), `start_time`, `end_time` |
 | `refresh_token` | `id` (primary key), `token_hash` (SHA-256, unique), `user_id` (foreign key to `app_user.id`), `expires_at` |
 
 One room can have many reservations. Each reservation belongs to one room through
-`reservation.room_id`.
+`reservation.room_id`, and to one account through `reservation.owner_id`. In
+`reset.sql`, mina owns reservations 1 and 3, and omar owns 2, 4 and 5.
 
-Reservation responses expose `roomId` and `roomName` rather than serializing the
-JPA entity and its lazy room relationship. A booking is rejected with 409 when
+Reservation responses expose `roomId`, `roomName` and `owner` (the username)
+rather than serializing the JPA entity and its lazy relationships. A booking is rejected with 409 when
 its interval overlaps an existing reservation for the same room; intervals that
 only touch at an endpoint are allowed.
 
@@ -95,7 +111,7 @@ server with MySQL running locally. Use these connection settings:
 | --------- | ------------------------------------ |
 | JDBC URL  | `jdbc:mysql://localhost:3306/roomdb` |
 | User Name | `roomapp`                            |
-| Password  | `roomapp1234`                        |
+| Password  | `roomapp1234` (or `DB_PASSWORD`)     |
 
 Every endpoint returns a response record (`RoomResponse` or
 `ReservationResponse`), never a JPA entity.
@@ -104,7 +120,7 @@ Deleting a room with reservations is checked in `RoomService.delete` first
 (409). The foreign key in the database still guards behind that check: if it
 ever refuses, `ApiExceptionHandler` also answers 409, never 500.
 
-Request 19 succeeds because it starts at 11:00, exactly when Mina's booking
+Request 19 succeeds because it starts at 11:00, exactly when reservation 1
 ends. The overlap check uses strict `<` and `>`, so touching bookings are allowed.
 
 ## PUT and dirty checking
@@ -115,7 +131,7 @@ and returns. There is no `save()` call. When the transaction commits, Hibernate
 compares the room with the snapshot it took when loading it and sends an UPDATE
 only if a field changed.
 
-For request 9 (and 29), Hibernate prints one select followed by this update:
+For request 9 (and 27), Hibernate prints one select followed by this update:
 
 ```sql
 select r1_0.id, r1_0.capacity, r1_0.name
@@ -127,10 +143,13 @@ set capacity = ?, name = ?
 where id = ?;
 ```
 
-The select loads the room (and gives 404 if it is missing). Request 30 sends
-the same body again: Hibernate prints only the select, because nothing changed.
-Request 31 has a bad capacity and prints no SQL at all, because the body is
-checked before the room is loaded.
+The select loads the room (and gives 404 if it is missing). Request 26 sends
+the values the room already has: Hibernate prints only the select, because
+nothing changed. Request 84 has a bad capacity and prints no SQL at all, because
+the body is checked before the room is loaded.
+
+Lab G uses the same idea: `ReservationService.reschedule` loads the reservation,
+calls `reservation.reschedule(start, end)` and returns, with no `save()`.
 
 ## Errors
 
@@ -149,7 +168,7 @@ public record ApiError(
 }
 ```
 
-Example: request 18 books room 1 while Mina has it.
+Example: request 18 books room 1 while reservation 1 has it.
 
 ```json
 {
@@ -163,15 +182,19 @@ Example: request 18 books room 1 while Mina has it.
 
 | Status | Meaning in this API | Thrown by / caused by | Examples in `api.http` |
 | ------ | ------------------- | --------------------- | ---------------------- |
-| 400 Bad Request | The request itself is wrong. Fix the request and send it again. | `IllegalArgumentException` from a service (missing name, capacity not 1–20, missing `reservedBy`, start not before end), or Spring cannot read the request (`abc` for a number, invalid JSON, a missing required parameter). | 6, 13, 20, 31–37, 42, 43 |
-| 401 Unauthorized | We do not know who is calling: no login, a wrong password, or a bad token. One of three messages: `login required`, `wrong username or password`, `token is invalid or expired`. | Spring Security's filters (through `ApiAuthenticationEntryPoint`) or `AuthService` throw an `AuthenticationException`. | 42, 47, 51, 54, 55, 56, 60, 62 |
-| 404 Not Found | The room or reservation in the URL does not exist, or no endpoint has that URL. | `NotFoundException` from a service, or an unknown path. | 10, 12, 16, 21, 25, 27, 28, 40 |
-| 409 Conflict | The request is valid, but it clashes with data that already exists. | `ConflictException` from a service (a booking overlaps, a room still has reservations), or the database refuses a write (`DataIntegrityViolationException`). | 18, 23, 38, 39 |
+| 400 Bad Request | The request itself is wrong. Fix the request and send it again. | `IllegalArgumentException` from a service (missing name, capacity not 1–20, a missing time, start not before end, bad sign-up), or Spring cannot read the request (`abc` for a number, invalid JSON). | 6, 13, 20, 28–30, 35, 36, 39–41, 45, 77, 83, 84 |
+| 401 Unauthorized | We do not know who is calling: no login, a wrong password, or a bad token. One of three messages: `login required`, `wrong username or password`, `token is invalid or expired`. | Spring Security's filters (through `ApiAuthenticationEntryPoint`) or `AuthService` throw an `AuthenticationException`. | 42, 47, 51, 54–56, 63, 86, 88 |
+| 403 Forbidden | We know who is calling, and the answer is no. Two messages: `admin role required` (rule D) and `reservation {id} belongs to another user` (rule C). | A URL rule in `SecurityConfig` throws `AccessDeniedException` (through `ApiAccessDeniedHandler`), or `ReservationService` throws `ForbiddenException`. | 46, 53, 61, 62, 68, 70, 74, 75 |
+| 404 Not Found | The room or reservation in the URL does not exist, or no endpoint has that URL. | `NotFoundException` from a service, or an unknown path. | 10, 12, 16, 21, 31, 33, 38, 71, 78 |
+| 409 Conflict | The request is valid, but it clashes with data that already exists. | `ConflictException` from a service (a booking overlaps, a room still has reservations), or the database refuses a write (`DataIntegrityViolationException`). | 18, 23, 32, 37, 44, 65, 76 |
 | 500 Internal Server Error | A bug on our side, not the client's fault. The message is always `"Unexpected error"`. The details go to the server console, never to the client. | Any other exception. | none: no request should cause it |
 
-The order of checks in a service is always 400, then 404, then 409: cheap checks
-on the request come first, before any SQL. That is why request 43 answers 400
-for a room that does not exist.
+The order of checks is always 401, then 400, then 404, then 403, then 409. The
+security filters answer 401 before any controller runs. In a service, cheap
+checks on the request come first, before any SQL: that is why request 84 answers
+400 for a room that does not exist. A reservation is loaded (404) before we can
+ask whose it is (403), so a caller learns that a reservation id exists; I use
+403 for "not yours", as in the brief.
 
 ## Authentication
 
@@ -188,6 +211,8 @@ response contains a password or a hash: accounts are answered as `UserResponse`
 | GET | `/swagger-ui.html`, `/v3/api-docs` | not needed |
 | GET | `/api/reservations/**`, `/api/auth/me` | needed |
 | POST, PUT, DELETE | everything else | needed |
+
+Who may call which of the protected endpoints is in [Authorization](#authorization).
 
 A request that sends a token is always checked, even on a public endpoint: a
 broken token answers 401 (request 55).
@@ -238,6 +263,46 @@ deletes it. A used, expired or deleted refresh token answers 401.
 | `mina` | `mina1234` | USER |
 | `omar` | `omar1234` | USER |
 | `admin` | `admin1234` | ADMIN |
+
+## Authorization
+
+Authentication answers 401 (we do not know you). Authorization answers 403 (we
+know you, and the answer is no). Both use the `ApiError` body.
+
+| Endpoint | Nobody | USER | ADMIN |
+| -------- | ------ | ---- | ----- |
+| GET rooms, room reservations, stats | yes | yes | yes |
+| POST `/api/rooms`, PUT / DELETE `/api/rooms/{id}` | 401 | 403 `admin role required` | yes |
+| POST `/api/rooms/{roomId}/reservations` | 401 | yes, as the owner | yes, as the owner |
+| GET `/api/reservations/mine` | 401 | own reservations | own reservations |
+| GET `/api/reservations/{id}` | 401 | own only, else 403 | any |
+| PUT `/api/reservations/{id}` | 401 | own only, else 403 | own only, else 403 |
+| DELETE `/api/reservations/{id}` | 401 | own only, else 403 | any |
+
+- **Rule D (role).** Checked by URL rules in `SecurityConfig` with
+  `hasRole("ADMIN")` on `POST /api/rooms` and `PUT`/`DELETE /api/rooms/*`. `/*`
+  is one path segment, so booking (`/api/rooms/1/reservations`) stays open to
+  every logged-in user.
+- **Roles from tokens.** A token's `role` claim becomes `ROLE_USER` or
+  `ROLE_ADMIN` (`JwtAuthenticationConverter`), the same authorities HTTP Basic
+  gets from `DbUserDetailsService` (requests 52 and 59).
+- **Rule C (owner).** Checked in `ReservationService`, because only the service
+  can see whose reservation it is. The owner of a new reservation is the
+  logged-in user (`authentication.getName()`), never a value from the request:
+  a `reservedBy` in the body is ignored (request 34). Sign-up ignores a `role`
+  field too (request 57).
+- **Lab G.** Moving a reservation is for its owner only, not even an admin
+  (request 75). The new time must not overlap another reservation in the room;
+  `countOverlappingExcept` leaves the reservation itself out, so moving it to
+  the same time works (request 73).
+
+### CORS
+
+Browser pages on the origins in `CORS_ORIGINS` may call `/api/**` with `GET`,
+`POST`, `PUT` and `DELETE` and the `Authorization` and `Content-Type` headers;
+`Location` is exposed. A preflight from another origin answers 403 `Invalid
+CORS request` (requests 81 and 82). CORS is checked by browsers only, not by
+curl or `api.http`.
 
 ## AI use
 
