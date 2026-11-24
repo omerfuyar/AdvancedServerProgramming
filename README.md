@@ -304,6 +304,33 @@ Browser pages on the origins in `CORS_ORIGINS` may call `/api/**` with `GET`,
 CORS request` (requests 81 and 82). CORS is checked by browsers only, not by
 curl or `api.http`.
 
+## Tests
+
+MySQL must be running with the `reset.sql` data (see [Database](#database)):
+`ApiFailureTest` starts the whole application and expects mina to own
+reservation 1. Run `reset.sql`, then:
+
+``` shell
+./gradlew test
+```
+
+on Windows:
+
+``` shell
+gradlew.bat test
+```
+
+In IntelliJ, click the green arrow next to a test class. Every API test is
+rolled back (`@Transactional`), so the database stays as `reset.sql` left it.
+
+| Class | Kind | Tests |
+| ----- | ---- | ----- |
+| `ReservationServiceTest` | JUnit + Mockito, no Spring, no database | 400, 404, 409, rule C (403), the owner is the logged-in user, owner and admin may delete, admin may not reschedule |
+| `ApiFailureTest` | `@SpringBootTest` + MockMvc, MySQL | 401 no login, rule D (403), admin creates a room (201), rule A (409), rule B (400), rule C (403), room with reservations (409), missing `endTime` (400), wrong password (401), missing reservation (404) |
+
+Each API test checks the status and the `message` of the `ApiError` body.
+`tests-green.png` shows a green run (18 tests passed).
+
 ## AI use
 
-I used AI to write the code and to format this file, then inspected and refactored it.
+I used AI to write the code and the tests and to format this file, then inspected and refactored it.
